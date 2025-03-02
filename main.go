@@ -110,6 +110,10 @@ func main() {
 	hostPeerIp := "10.33.33.1"
 	vmPeerIp := "10.33.33.2"
 
+	hostPeerIpv6 := "fd00::1"
+	vmPeerIpv6 := "fd00::2"
+
+
 	c, err := wgctrl.New()
 	if err != nil {
 		logger.Errorf("Failed to create new wgctrl client: %v", err)
@@ -136,19 +140,33 @@ func main() {
 		os.Exit(ExitSetupFailed)
 	}
 
+	_, wildcardIpv6Net, err := net.ParseCIDR("::/0")
+	if err != nil {
+			logger.Errorf("Failed to parse wildcard CIDR: %v", err)
+			os.Exit(ExitSetupFailed)
+	}
+
 	_, vmIpNet, err := net.ParseCIDR(vmPeerIp + "/32")
 	if err != nil {
 		logger.Errorf("Failed to parse VM peer CIDR: %v", err)
 		os.Exit(ExitSetupFailed)
 	}
 
-	peer := wgtypes.PeerConfig{
-		PublicKey: vmPrivateKey.PublicKey(),
-		AllowedIPs: []net.IPNet{
-			*wildcardIpNet,
-			*vmIpNet,
-		},
+	_, vmIpv6Net, err := net.ParseCIDR(vmPeerIpv6 + "/128")
+	if err != nil {
+			logger.Errorf("Failed to parse VM peer CIDR: %v", err)
+			os.Exit(ExitSetupFailed)
 	}
+
+	peer := wgtypes.PeerConfig{
+        PublicKey: vmPrivateKey.PublicKey(),
+        AllowedIPs: []net.IPNet{
+                *wildcardIpv4Net,
+                *wildcardIpv6Net,
+                *vmIpv4Net,
+                *vmIpv6Net,
+        },
+}
 
 	port := 3333
 	err = c.ConfigureDevice(interfaceName, wgtypes.Config{
@@ -163,11 +181,17 @@ func main() {
 
 	networkManager := networkmanager.New()
 
-	_, stderr, err := networkManager.SetInterfaceAddress(hostPeerIp, vmPeerIp, interfaceName)
+	_, stderr, err := networkManager.SetInterfaceAddress(hostPeerIpv4, vmPeerIpv4, interfaceName)
 	if err != nil {
-		logger.Errorf("Failed to set interface address with ifconfig: %v. %v", err, stderr)
-		os.Exit(ExitSetupFailed)
-	}
+			logger.Errorf("Failed to set IPv4 interface address with ifconfig: %v. %v", err, stderr)
+			os.Exit(ExitSetupFailed)
+}
+
+_, stderr, err = networkManager.SetInterfaceAddress(hostPeerIpv6, vmPeerIpv6, interfaceName)
+if err != nil {
+        logger.Errorf("Failed to set IPv6 interface address with ifconfig: %v. %v", err, stderr)
+        os.Exit(ExitSetupFailed)
+}
 
 	logger.Verbosef("Interface %s created\n", interfaceName)
 
@@ -185,11 +209,11 @@ func main() {
 		for {
 			logger.Verbosef("Setting up Wireguard on Docker Desktop VM\n")
 
-			err = setupVm(ctx, cli, port, hostPeerIp, vmPeerIp, hostPrivateKey, vmPrivateKey)
+			err = setupVm(ctx, cli, port, hostPeerIpv4, vmPeerIpv4, hostPeerIpv6, vmPeerIpv6, hostPrivateKey, vmPrivateKey)
 			if err != nil {
-				logger.Errorf("Failed to setup VM: %v", err)
-				time.Sleep(5 * time.Second)
-				continue
+					logger.Errorf("Failed to setup VM: %v", err)
+					time.Sleep(5 * time.Second)
+					continue
 			}
 
 			networks, err := cli.NetworkList(ctx, types.NetworkListOptions{})
@@ -269,73 +293,77 @@ func main() {
 }
 
 func setupVm(
-	ctx context.Context,
-	dockerCli *client.Client,
-	serverPort int,
-	hostPeerIp string,
-	vmPeerIp string,
-	hostPrivateKey wgtypes.Key,
-	vmPrivateKey wgtypes.Key,
+    ctx context.Context,
+    dockerCli *client.Client,
+    serverPort int,
+    hostPeerIpv4 string,
+    vmPeerIpv4 string,
+    hostPeerIpv6 string,
+    vmPeerIpv6 string,
+    hostPrivateKey wgtypes.Key,
+    vmPrivateKey wgtypes.Key,
 ) error {
-	imageName := fmt.Sprintf("%s:%s", version.SetupImage, version.Version)
+    imageName := fmt.Sprintf("%s:%s", version.SetupImage, version.Version)
 
-	_, _, err := dockerCli.ImageInspectWithRaw(ctx, imageName)
-	if err != nil {
-		fmt.Printf("Image doesn't exist locally. Pulling...\n")
+    _, _, err := dockerCli.ImageInspectWithRaw(ctx, imageName)
+    if err != nil {
+        fmt.Printf("Image doesn't exist locally. Pulling...\n")
 
-		pullStream, err := dockerCli.ImagePull(ctx, imageName, types.ImagePullOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to pull setup image: %w", err)
-		}
+        pullStream, err := dockerCli.ImagePull(ctx, imageName, types.ImagePullOptions{})
+        if err != nil {
+            return fmt.Errorf("failed to pull setup image: %w", err)
+        }
 
-		io.Copy(os.Stdout, pullStream)
-	}
+        io.Copy(os.Stdout, pullStream)
+    }
 
-	resp, err := dockerCli.ContainerCreate(ctx, &container.Config{
-		Image: imageName,
-		Env: []string{
-			"SERVER_PORT=" + strconv.Itoa(serverPort),
-			"HOST_PEER_IP=" + hostPeerIp,
-			"VM_PEER_IP=" + vmPeerIp,
-			"HOST_PUBLIC_KEY=" + hostPrivateKey.PublicKey().String(),
-			"VM_PRIVATE_KEY=" + vmPrivateKey.String(),
-		},
-	}, &container.HostConfig{
-		AutoRemove:  true,
-		NetworkMode: "host",
-		CapAdd:      []string{"NET_ADMIN"},
-	}, nil, nil, "wireguard-setup")
-	if err != nil {
-		return fmt.Errorf("failed to create container: %w", err)
-	}
+    resp, err := dockerCli.ContainerCreate(ctx, &container.Config{
+        Image: imageName,
+        Env: []string{
+            "SERVER_PORT=" + strconv.Itoa(serverPort),
+            "HOST_PEER_IPV4=" + hostPeerIpv4,
+            "VM_PEER_IPV4=" + vmPeerIpv4,
+            "HOST_PEER_IPV6=" + hostPeerIpv6,
+            "VM_PEER_IPV6=" + vmPeerIpv6,
+            "HOST_PUBLIC_KEY=" + hostPrivateKey.PublicKey().String(),
+            "VM_PRIVATE_KEY=" + vmPrivateKey.String(),
+        },
+    }, &container.HostConfig{
+        AutoRemove:  true,
+        NetworkMode: "host",
+        CapAdd:      []string{"NET_ADMIN"},
+    }, nil, nil, "wireguard-setup")
+    if err != nil {
+        return fmt.Errorf("failed to create container: %w", err)
+    }
 
-	// Run container to completion
-	err = dockerCli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
-	}
+    // Run container to completion
+    err = dockerCli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+    if err != nil {
+        return fmt.Errorf("failed to start container: %w", err)
+    }
 
-	func() error {
-		reader, err := dockerCli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
-			ShowStdout: true,
-			ShowStderr: true,
-			Follow:     true,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get logs for container %s: %w", resp.ID, err)
-		}
+    func() error {
+        reader, err := dockerCli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
+            ShowStdout: true,
+            ShowStderr: true,
+            Follow:     true,
+        })
+        if err != nil {
+            return fmt.Errorf("failed to get logs for container %s: %w", resp.ID, err)
+        }
 
-		defer reader.Close()
+        defer reader.Close()
 
-		_, err = stdcopy.StdCopy(os.Stdout, os.Stderr, reader)
-		if err != nil {
-			return err
-		}
+        _, err = stdcopy.StdCopy(os.Stdout, os.Stderr, reader)
+        if err != nil {
+            return err
+        }
 
-		return nil
-	}()
+        return nil
+    }()
 
-	fmt.Println("Setup container complete")
+    fmt.Println("Setup container complete")
 
-	return nil
+    return nil
 }
