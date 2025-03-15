@@ -25,8 +25,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/chipmk/docker-mac-net-connect/networkmanager"
-	"github.com/chipmk/docker-mac-net-connect/version"
+	"github.com/joshhalley/docker-mac-net-connect/networkmanager"
+	"github.com/joshhalley/docker-mac-net-connect/version"
 )
 
 const (
@@ -107,8 +107,8 @@ func main() {
 
 	// Wireguard configuration
 
-	hostPeerIp := "10.33.33.1"
-	vmPeerIp := "10.33.33.2"
+	hostPeerIpv4 := "10.33.33.1"
+	vmPeerIpv4 := "10.33.33.2"
 
 	hostPeerIpv6 := "fd00::1"
 	vmPeerIpv6 := "fd00::2"
@@ -134,7 +134,7 @@ func main() {
 		os.Exit(ExitSetupFailed)
 	}
 
-	_, wildcardIpNet, err := net.ParseCIDR("0.0.0.0/0")
+	_, wildcardIpv4Net, err := net.ParseCIDR("0.0.0.0/0")
 	if err != nil {
 		logger.Errorf("Failed to parse wildcard CIDR: %v", err)
 		os.Exit(ExitSetupFailed)
@@ -146,7 +146,7 @@ func main() {
 			os.Exit(ExitSetupFailed)
 	}
 
-	_, vmIpNet, err := net.ParseCIDR(vmPeerIp + "/32")
+	_, vmIpv4Net, err := net.ParseCIDR(vmPeerIpv4 + "/32")
 	if err != nil {
 		logger.Errorf("Failed to parse VM peer CIDR: %v", err)
 		os.Exit(ExitSetupFailed)

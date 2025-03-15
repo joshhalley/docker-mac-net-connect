@@ -1,5 +1,5 @@
-PROJECT         := github.com/joshhalley/docker-mac-net-connect
-SETUP_IMAGE     := ghcr.io/joshhalley/docker-mac-net-connect/setup
+PROJECT         := github.com/chipmk/docker-mac-net-connect
+SETUP_IMAGE     := ghcr.io/chipmk/docker-mac-net-connect/setup
 VERSION         := $(shell git describe --tags 2>/dev/null || echo "v0.0.0")
 TAG             := latest-$(VERSION)
 LD_FLAGS        := -X ${PROJECT}/version.Version=${VERSION} -X ${PROJECT}/version.SetupImage=${SETUP_IMAGE}:${TAG}
